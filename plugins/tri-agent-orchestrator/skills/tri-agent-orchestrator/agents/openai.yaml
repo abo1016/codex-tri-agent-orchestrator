@@ -1,0 +1,7 @@
+interface:
+  display_name: "Tri-Agent Orchestrator"
+  short_description: "Route Codex work across Luna, Terra, and Sol"
+  default_prompt: "Use $tri-agent-orchestrator to configure, verify, and run the cost-aware Luna/Terra/Sol multi-agent workflow."
+
+policy:
+  allow_implicit_invocation: true

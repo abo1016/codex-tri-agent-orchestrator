@@ -1,0 +1,20 @@
+{
+  "name": "codex-tri-agent-orchestrator",
+  "interface": {
+    "displayName": "Codex Tri-Agent Orchestrator"
+  },
+  "plugins": [
+    {
+      "name": "tri-agent-orchestrator",
+      "source": {
+        "source": "local",
+        "path": "./plugins/tri-agent-orchestrator"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

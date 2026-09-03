@@ -1,0 +1,34 @@
+{
+  "name": "tri-agent-orchestrator",
+  "version": "0.1.0",
+  "description": "Cost-aware Codex orchestration with Luna workers, Terra coordination/experts, and Sol review.",
+  "author": {
+    "name": "abo1016",
+    "url": "https://github.com/abo1016"
+  },
+  "homepage": "https://github.com/abo1016/codex-tri-agent-orchestrator#readme",
+  "repository": "https://github.com/abo1016/codex-tri-agent-orchestrator",
+  "license": "MIT",
+  "keywords": [
+    "codex",
+    "multi-agent",
+    "orchestration",
+    "gpt-5.6-luna",
+    "gpt-5.6-terra",
+    "gpt-5.6-sol"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tri-Agent Orchestrator",
+    "shortDescription": "Route Codex work across Luna, Terra, and Sol",
+    "longDescription": "A cost-aware multi-agent workflow for Codex: Terra coordinates, Luna implements/tests, Terra handles complex engineering, and Sol performs high-value architecture and review.",
+    "developerName": "abo1016",
+    "category": "Productivity",
+    "capabilities": ["Write"],
+    "websiteURL": "https://github.com/abo1016/codex-tri-agent-orchestrator",
+    "defaultPrompt": [
+      "Configure and verify my Tri-Agent Codex setup.",
+      "Use the Tri-Agent workflow for this task."
+    ]
+  }
+}
