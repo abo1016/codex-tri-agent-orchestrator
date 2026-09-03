@@ -2,118 +2,109 @@
 name: tri-agent-orchestrator
 description: >
   Cost-aware Codex multi-agent orchestration using GPT-5.6 Luna, Terra, and Sol.
-  Use for feature development, bug fixing, refactoring, architecture, testing,
-  and review when work can benefit from model-specialized delegation.
+  Use for engineering work that benefits from delegated implementation, parallel
+  verification, complexity-based model routing, or independent high-risk review.
+  Avoid activating solely for trivial isolated edits unless explicitly requested.
 ---
 
 # Tri-Agent Orchestrator
 
-Use the cheapest capable model for each reasoning step.
+Use the cheapest capable model for each reasoning step. The root coordinator owns scope, integration, Git state, and final acceptance.
 
 ## Roles
 
-- `terra` root/coordinator (current main thread): triage, decomposition, coordination, small glue edits.
-- `luna_worker`: routine implementation and targeted tests.
-- `luna_tester`: testing, lint, typecheck, regression verification; return concise evidence.
-- `terra_expert`: complex engineering and debugging.
-- `sol_judge`: read-only architecture, root-cause judgment, security/high-risk review, final critical acceptance.
+- `terra` root/coordinator: triage, decomposition, coordination, integration, small glue edits.
+- `luna_worker`: bounded routine implementation and targeted tests.
+- `luna_tester`: deterministic verification and concise evidence.
+- `terra_expert`: complex engineering and evidence-based debugging.
+- `sol_judge`: read-only architecture, root-cause, security/high-risk review, and critical acceptance.
+
+All custom roles are **leaf agents**: never spawn or delegate to another subagent. If scope is exceeded, return control to the root coordinator.
 
 ## Routing
 
-Route by reasoning difficulty, not by task size.
+Route by reasoning difficulty, not task size.
 
-Use `luna_worker` for clear, bounded, verifiable work following known project patterns.
-
-Use `terra_expert` for cross-module implementation, transactions, concurrency, consistency, Kafka/queues, cache behavior, difficult debugging, performance-sensitive work, or risky migrations.
-
-Use `sol_judge` only when high-value judgment is justified: architecture, meaningful trade-offs, security, difficult concurrency/distributed correctness, unresolved root cause, or high-risk final review.
+- Luna Worker: clear, local, pattern-following, easy-to-verify implementation.
+- Luna Tester: tests, lint, typecheck, compile, regression reproduction.
+- Terra Expert: cross-module work, transactions, concurrency, consistency, queues/cache, difficult debugging, risky migrations.
+- Sol Judge: architecture, security, difficult distributed correctness, unresolved root cause, or high-risk acceptance.
 
 A large task made of simple independent work should become multiple Luna tasks, not a Sol task.
+
+For non-trivial delegation, ambiguous routing, escalation, correction loops, or Sol review, read [references/orchestration-policy.md](references/orchestration-policy.md).
 
 ## Workflow
 
 For non-trivial work:
 
-1. DISCOVER — inspect only relevant code, tests, and project rules.
-2. CLASSIFY — determine routine vs complex vs judgment-heavy work.
-3. DESIGN — only when a real design decision exists. Invoke `sol_judge` when the decision is high impact.
-4. DECOMPOSE — define independent tasks with scope, ownership, dependencies, acceptance criteria, and tests.
-5. DELEGATE — spawn named custom agents. Prefer 2–4 useful parallel tasks, not maximum fan-out.
-6. EXECUTE — workers implement and test within scope.
-7. INTEGRATE — root coordinator reconciles interfaces and performs small glue edits if necessary.
-8. VERIFY — use `luna_tester` when verification output would pollute the root context or when integration testing is substantial.
-9. REVIEW — invoke `sol_judge` for architecture/security/concurrency/high-risk changes. Routine low-risk work may be accepted after deterministic verification.
-10. CORRECT — route BLOCKER/MAJOR findings back to Luna or Terra according to complexity.
-11. RETEST and ACCEPT.
+1. DISCOVER relevant code, tests, rules, and current worktree state.
+2. BASELINE pre-existing `git status --short` and relevant diff; protect user changes.
+3. CLASSIFY and DECOMPOSE by reasoning difficulty and safe ownership boundaries.
+4. DELEGATE 2–4 useful leaf-agent tasks when parallelism helps.
+5. EXECUTE within assigned ownership.
+6. INTEGRATE in the root thread.
+7. VERIFY deterministically; use `luna_tester` when logs or integration checks are substantial.
+8. REVIEW with `sol_judge` only when risk justifies it.
+9. CORRECT, RETEST, and ACCEPT.
 
-## Parallel safety
+Every delegated task must state scope, owned files/modules, acceptance criteria, tests, concurrency constraints, and that the agent must not spawn subagents or revert unrelated changes.
 
-Every delegated implementation task must state:
+The root coordinator owns repository-level Git state. Leaf agents must not commit, stash, switch branches, reset, restore, or rebase unless explicitly required by the task.
 
-- exact scope and expected outcome
-- files/modules owned
-- acceptance criteria
-- tests to run
-- other agents may work concurrently
-- do not revert unrelated changes
-- inspect current file state before edits
+## Escalation and stopping
 
-Never use `git reset --hard`, `git checkout .`, or `git restore .` as routine conflict recovery.
+Luna -> Terra after two evidence-producing failed attempts, unclear root cause, or when deeper cross-component correctness is required.
 
-If tasks may edit the same tightly coupled code, sequence them unless ownership boundaries are explicit and safe.
+Terra -> Sol for high-impact architecture, difficult security/distributed correctness, persistent ambiguity after substantial evidence gathering, or unusually expensive wrong decisions.
 
-## Escalation
+After Sol resolves the hard reasoning step, de-escalate implementation immediately.
 
-Luna -> Terra when:
+Do not repeat an unchanged failing approach. Default budget for the same root cause: two Luna attempts, two Terra correction rounds, and at most two Sol review rounds unless new evidence materially changes the approach.
 
-- two meaningful attempts produced evidence but did not solve the problem; or
-- the root cause remains unclear; or
-- cross-component correctness, transactions, concurrency, or consistency require deeper engineering judgment.
+## Review and evidence
 
-Before escalation, return a compact handoff:
+`sol_judge` never edits files and returns one of:
+
+- BLOCKER
+- MAJOR
+- MINOR
+- INSUFFICIENT_EVIDENCE
+- ACCEPTED
+
+BLOCKER/MAJOR must include correction and verification requirements. INSUFFICIENT_EVIDENCE must state exactly what evidence is missing.
+
+Leaf-agent handoffs should be compact:
 
 ```text
-Known facts:
-Unknowns:
-Evidence / attempts:
-Why Luna scope is exceeded:
-Recommended next step:
+STATUS: DONE | BLOCKED | ESCALATE
+Scope completed:
+Files changed:
+Behavior changed:
+Verification:
+Pre-existing failures:
+Residual risks:
 ```
-
-Terra -> Sol when:
-
-- a fundamental architecture decision has significant long-term trade-offs;
-- correctness depends on difficult security/concurrency/distributed reasoning;
-- substantial evidence-based investigation still leaves the root cause ambiguous;
-- the cost of a wrong decision is unusually high.
-
-After Sol resolves the hard reasoning step, de-escalate implementation immediately to Terra or Luna.
-
-## Review contract
-
-`sol_judge` never edits files. It should verify actual evidence and classify findings as:
-
-- BLOCKER — cannot accept; correctness/security/data-loss risk.
-- MAJOR — important defect/regression/risk that should be fixed before acceptance.
-- MINOR — legitimate non-blocking improvement.
-
-If no blocking issue remains, return `ACCEPTED` and a short evidence summary.
 
 Do not trust worker claims without checking diff/tests when the review matters.
 
 ## Cost discipline
 
-- Do not spawn a subagent for a trivial local edit.
-- Keep agent recursion depth at 1.
+- No subagent for a trivial local edit.
+- Keep custom roles as leaf agents.
 - Prefer deterministic tools over another reasoning round.
-- Sol must not do mechanical implementation.
-- Do not keep Sol watching workers continuously; invoke it at decision/review boundaries.
-- Use search before broad repository reads.
-- Keep bulk logs/tests inside disposable tester/worker contexts and return summaries.
+- Sol does not do mechanical implementation or continuously supervise workers.
+- Search before broad repository reads.
+- Keep bulk logs in disposable worker/tester contexts.
+- Default Luna Worker to `high` reasoning and Luna Tester to `medium`; increase only when evidence justifies it.
+
+## Codex V1/V2 note
+
+`agents.max_depth = 1` constrains V1 nesting. Current Codex Multi-Agent V2 ignores that field, so V2 recursion control depends on the leaf-agent instructions above. Never describe `max_depth` as a V2 hard guarantee.
 
 ## Setup / verification
 
-When asked to install, configure, update, or verify this workflow, run:
+For installation or verification:
 
 ```bash
 python "<skill>/scripts/configure_tri_agent.py" --dry-run
@@ -121,18 +112,12 @@ python "<skill>/scripts/configure_tri_agent.py"
 python "<skill>/scripts/configure_tri_agent.py" --check
 ```
 
-Use the actual installed Skill path for `<skill>`. The script preserves unrelated Codex config, creates timestamped backups for changed files, and installs the four custom roles.
+Use `--preserve-root-model` during installation when existing root model/reasoning defaults must remain unchanged.
 
-After successful configuration, tell the user to start a new Codex session so the roles/config are reloaded.
+The script preserves unrelated config, refuses symlinked managed files, backs up changed files, rolls back partial writes on failure, and installs the four roles. After configuration, start a new Codex session.
 
 ## User communication
 
-Do not narrate every spawn or tool call. During longer work, report phases, delegated workstreams, important findings, and blockers concisely.
+During longer work, report phases, important findings, and blockers without narrating every tool call.
 
-Final summary should include:
-
-- what changed
-- important modules/files
-- verification performed
-- review result when Sol was used
-- remaining known risks
+Final summary: what changed, important files, verification, Sol result when used, and remaining risks.
