@@ -7,29 +7,75 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: Validate metadata and agent TOML
+          python-version: ${{ matrix.python-version }}
+
+      - name: Validate plugin metadata and agent TOML
         run: |
           python - <<'PY'
-          import json, pathlib, tomllib
+          import json, pathlib, re, tomllib
+
           root = pathlib.Path('.')
-          json.loads((root / '.agents/plugins/marketplace.json').read_text())
-          json.loads((root / 'plugins/tri-agent-orchestrator/.codex-plugin/plugin.json').read_text())
+          marketplace = json.loads((root / '.agents/plugins/marketplace.json').read_text())
+          plugin = json.loads((root / 'plugins/tri-agent-orchestrator/.codex-plugin/plugin.json').read_text())
+
+          required = ['name', 'version', 'description', 'author', 'interface']
+          missing = [key for key in required if not plugin.get(key)]
+          assert not missing, f'missing plugin fields: {missing}'
+          assert re.fullmatch(r'\d+\.\d+\.\d+', plugin['version']), plugin['version']
+          assert plugin['name'] == 'tri-agent-orchestrator'
+          assert plugin['author'].get('name')
+          for key in ['displayName', 'shortDescription', 'longDescription', 'developerName', 'category']:
+              assert plugin['interface'].get(key), f'missing interface.{key}'
+
+          entry = next(item for item in marketplace['plugins'] if item['name'] == plugin['name'])
+          assert entry['source']['path'] == './plugins/tri-agent-orchestrator'
+          assert entry['policy']['installation'] in {'AVAILABLE', 'INSTALLED_BY_DEFAULT', 'NOT_AVAILABLE'}
+          assert entry['policy']['authentication'] in {'ON_INSTALL', 'ON_USE'}
+
           assets = root / 'plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/assets'
           for path in assets.glob('*.toml'):
               tomllib.loads(path.read_text())
               print('OK', path)
           PY
+
       - name: Compile installer
         run: python -m py_compile plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
-      - name: Installer dry-run and verification
+
+      - name: Run installer unit tests
+        run: python -m unittest discover -s plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/tests -v
+
+      - name: Installer dry-run, install, idempotency, and verification
         run: |
           export CODEX_HOME="$RUNNER_TEMP/codex-home"
           SCRIPT=plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
           python "$SCRIPT" --dry-run
           python "$SCRIPT"
+          python "$SCRIPT"
           python "$SCRIPT" --check
+
+      - name: Preserve existing root model
+        run: |
+          export CODEX_HOME="$RUNNER_TEMP/codex-home-preserve"
+          mkdir -p "$CODEX_HOME"
+          cat > "$CODEX_HOME/config.toml" <<'EOF'
+          model = "custom-model"
+          model_reasoning_effort = "low"
+          EOF
+          SCRIPT=plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
+          python "$SCRIPT" --preserve-root-model
+          python "$SCRIPT" --check --preserve-root-model
+          python - <<'PY'
+          import os, pathlib, tomllib
+          cfg = pathlib.Path(os.environ['CODEX_HOME']) / 'config.toml'
+          data = tomllib.loads(cfg.read_text())
+          assert data['model'] == 'custom-model'
+          assert data['model_reasoning_effort'] == 'low'
+          PY
