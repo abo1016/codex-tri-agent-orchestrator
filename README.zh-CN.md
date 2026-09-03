@@ -2,223 +2,110 @@
 
 [English](README.md) | **简体中文**
 
-> 面向 Codex 的成本敏感型多 Agent 编排方案：Luna 主力编码、Terra 复杂工程、Sol 架构与验收。
-
-Codex Tri-Agent Orchestrator 会把 Codex 组织成一个职责明确的小型工程团队：
+> 面向 Codex 的成本敏感型多 Agent 编排方案：Luna 主力执行，Terra 负责协调与复杂工程，Sol 负责高价值判断与关键验收。
 
 ```text
 你
  └─ Terra Coordinator · medium
-     ├─ Luna Worker    · xhigh   — 常规编码 + 定向测试
-     ├─ Luna Tester    · high    — 测试、lint、回归验证
+     ├─ Luna Worker    · high    — 常规实现 + 定向测试
+     ├─ Luna Tester    · medium  — 测试、lint、回归验证
      ├─ Terra Expert   · high    — 复杂实现 / 疑难调试
-     └─ Sol Judge      · high    — 只读架构与最终验收
+     └─ Sol Judge      · high    — 只读架构与关键验收
 ```
+
+所有自定义角色都是 **leaf agent（叶子 Agent）**：不会继续派生子 Agent。当前 Codex Multi-Agent V2 会忽略 `agents.max_depth`，因此 `max_depth = 1` 只作为 V1 限制；V2 下通过角色指令禁止继续 spawn。
 
 ## 为什么这样设计？
 
-最贵的模型不应该全天候处在热路径里。Sol 只用于高价值判断，Luna 处理边界清晰的执行任务，Terra 负责常驻协调和真正复杂的工程实现。
-
-模型路由规则：
+最贵的模型不应该长期待在热路径里。Sol 只处理高价值判断；Luna 承担边界清晰的实现与确定性验证；Terra 负责常驻协调和真正复杂的工程问题。
 
 ```text
-明确 + 局部 + 可验证          -> Luna
-复杂实现 / 跨模块 / 难调试     -> Terra
-架构 / 高风险决策 / 关键验收    -> Sol
+明确 + 局部 + 可验证          -> Luna Worker
+测试 / lint / 回归验证        -> Luna Tester
+复杂实现 / 跨模块 / 难调试     -> Terra Expert
+架构 / 高风险决策 / 关键验收    -> Sol Judge
 ```
 
-**任务大不等于任务难。** 先拆分，再根据推理难度升级模型。
+**任务大不等于任务难。** 先拆分，再按推理难度升级模型。
 
 ## Plugin 会安装什么
 
 - `tri-agent-orchestrator` Skill
-- `luna_worker` — GPT-5.6 Luna，xhigh
-- `luna_tester` — GPT-5.6 Luna，high
+- `luna_worker` — GPT-5.6 Luna，high
+- `luna_tester` — GPT-5.6 Luna，medium
 - `terra_expert` — GPT-5.6 Terra，high
 - `sol_judge` — GPT-5.6 Sol，high，read-only
-- 安全的 Codex 默认配置：Terra 作为协调者、开启 agents、限制并发与递归深度
-- Python 3.11+ 安装/校验脚本，支持 `--dry-run` 和 `--check`
+- Codex Agent 默认配置：限制并发、V1 `max_depth = 1`、默认子 Agent 使用 Luna
+- Python 3.11+ 安装器，支持 `--dry-run`、`--check`、`--preserve-root-model`
 
-安装脚本只修改本插件负责的配置项；已有文件发生变化前会创建带时间戳的备份，不会整份覆盖你的 Codex 配置。
+安装器现在会：识别 TOML 多行字符串、创建时间戳备份、拒绝覆盖 symlink、检查角色配置漂移，并在部分写入或验证失败时自动回滚。
 
-## 作为 Codex Plugin 安装
+## 安装
 
 ```bash
 codex plugin marketplace add abo1016/codex-tri-agent-orchestrator --ref main
 codex plugin add tri-agent-orchestrator@codex-tri-agent-orchestrator
 ```
 
-安装后**新开一个 Codex 会话**，执行 `/skills`，选择 **Tri-Agent Orchestrator**，然后说：
+安装后新开 Codex 会话，执行 `/skills`，选择 **Tri-Agent Orchestrator**。
 
-```text
-使用 Tri-Agent Orchestrator 配置并验证我的 Codex 多 Agent 开发环境。
-```
-
-也可以只安装 Skill：
-
-```text
-$skill-installer Install the skill from https://github.com/abo1016/codex-tri-agent-orchestrator/tree/main/plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator
-```
-
-## 手动安装/校验
-
-需要 Python 3.11+。
+手动安装/校验：
 
 ```bash
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --dry-run
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --check
-codex doctor
 ```
 
-安装后请重启 Codex。
+如果希望保留现有 root `model` 和 `model_reasoning_effort`：
 
-## 日常怎么用
-
-正常开发直接启动 Codex 即可，由 Terra Coordinator 判断是否值得派生 Subagent。
-
-例如：
-
-```text
-使用 tri-agent 工作流实现用户通知偏好功能。
-```
-
-```text
-排查这个 Kafka consumer 问题。复杂实现交给 Terra，Sol 只做根因和最终验收。
-```
-
-```text
-用 Sol Judge review 当前 diff，不允许修改文件。
+```bash
+python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --preserve-root-model
+python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --check --preserve-root-model
 ```
 
 ## 默认工作流
 
 ```text
-DISCOVER
-  -> DESIGN（需要时）
-  -> DECOMPOSE
-  -> ROUTE
-  -> PARALLEL EXECUTION
-  -> TEST
-  -> SOL REVIEW（按风险触发）
+DISCOVER + WORKTREE BASELINE
+  -> CLASSIFY / DECOMPOSE
+  -> PARALLEL LEAF EXECUTION
+  -> INTEGRATE
+  -> DETERMINISTIC VERIFY
+  -> SOL REVIEW（风险驱动）
   -> CORRECT
   -> RETEST
   -> ACCEPT
 ```
 
-Sol Review 是**风险驱动**，不是每个 20 行修改都必须调用 Sol。普通改动经编译、测试、lint 等确定性验证后即可验收；架构、安全、并发、一致性、高风险迁移等任务应进入 Sol Judge。
+派发任务前，Root Coordinator 记录当前 `git status --short` 和必要 diff，把用户已有改动视为受保护状态。Root Coordinator 负责仓库级 Git 状态；Leaf Agent 默认不能执行 commit、stash、切分支、reset、restore、rebase 等操作，除非任务明确要求。
 
-## 成本纪律
+## 升级与停止条件
 
-- 简单修改不要派 Subagent。
-- 优先 2～4 个真正能并行的 worker，而不是把并发开满。
-- 递归深度保持 1，禁止 Agent 继续无限派 Agent。
-- Sol 不做机械编码。
-- 困难决策解决后，立即把实现降级给 Terra/Luna。
-- 能用编译器、测试、lint、静态分析、运行证据验证的，不要再加一轮昂贵推理。
-- Luna 连续两次“有证据的失败”后升级 Terra，不要无限重试 Luna。
+- Luna 连续两次有新证据的失败后，通常升级 Terra。
+- Terra 在高影响架构、安全/分布式正确性或充分调查后仍存在根因歧义时升级 Sol。
+- 同一根因默认预算：Luna 最多 2 次、Terra 修正最多 2 轮、Sol Review 最多 2 轮。
+- 确定性失败且方法没变化时禁止盲目重试。
+- Sol 解决困难判断后，机械实现立即降级回 Terra/Luna。
 
-## 角色职责
-
-### Terra Coordinator
-
-常驻主线程，默认 `medium`。负责：
-
-- 理解需求
-- 搜索关键代码
-- 判断复杂度
-- 拆任务
-- 指定文件/模块 ownership
-- 判断哪些任务值得并行
-- 汇总 worker 结果
-- 决定是否需要 Sol Judge
-
-它可以处理非常小的修改，但不应吞掉本来适合 Luna 并行完成的实现工作。
-
-### Luna Worker
-
-默认执行者，负责边界明确、容易验证的编码：
-
-- CRUD
-- API Handler / Controller
-- DTO / VO / Proto / Schema
-- Repository / Service 的常规实现
-- Validator / Mapper / Adapter
-- 测试
-- 小重构
-- 已知根因的简单 Bug
-
-### Luna Tester
-
-专门隔离测试日志与验证上下文：
-
-- 单元测试
-- 集成测试
-- lint
-- typecheck / compile
-- 回归测试
-- 失败摘要
-
-优先返回精炼证据，不把大量测试输出塞回主线程。
-
-### Terra Expert
-
-处理真正需要高级工程判断的实现：
-
-- 跨模块改动
-- 事务
-- 数据一致性
-- Redis / Cache consistency
-- Kafka / 消息队列
-- goroutine / channel / lock
-- 复杂鉴权
-- 性能敏感 SQL
-- 复杂迁移
-- 非显然根因 Debug
-
-### Sol Judge
-
-`read-only`。只负责高价值判断：
-
-- 架构
-- 重要 trade-off
-- 高风险设计
-- 安全
-- 复杂并发/分布式正确性
-- 疑难根因复核
-- 最终关键 Review
-
-输出应为：
-
-```text
-ACCEPTED
-```
-
-或者：
+Sol Judge 的结果：
 
 ```text
 BLOCKER
 MAJOR
 MINOR
+INSUFFICIENT_EVIDENCE
+ACCEPTED
 ```
 
-发现 BLOCKER/MAJOR 后，由 Coordinator 再把修复任务路由给 Luna 或 Terra，修完重新验证。
+## 成本纪律
 
-## 并行策略
-
-推荐默认：
-
-```text
-1 Terra Coordinator
-+
-2~3 Luna Workers
-+
-0~1 Terra Expert
-```
-
-多个 Agent 只有在工作流真正独立时才并行。若多个任务可能修改同一文件或同一强耦合模块，应明确 ownership 或顺序执行。
-
-禁止把 `git reset --hard`、`git checkout .`、`git restore .` 当成并发冲突恢复手段。
+- 简单局部修改不要派 Subagent。
+- 优先 2～4 个真正能并行的 worker。
+- 所有自定义角色保持 leaf agent。
+- 能用编译器、测试、lint、静态分析、运行证据验证的，不增加额外推理轮次。
+- Sol 不做机械编码，也不持续监督 worker。
+- Luna Worker 默认 `high`，Luna Tester 默认 `medium`。
 
 ## 目录结构
 
@@ -236,19 +123,10 @@ plugins/tri-agent-orchestrator/
       sol-judge.toml
     references/orchestration-policy.md
     scripts/configure_tri_agent.py
+    tests/test_configure_tri_agent.py
 ```
 
-## 安全设计
-
-`sol_judge` 从配置层面就是只读角色。实现角色只使用 workspace-write。本插件不会默认打开 unrestricted sandbox、不会配置 force-push、生产部署或破坏性操作。
-
-## 兼容性
-
-Codex 的配置格式仍可能变化。因此本项目首版默认避免依赖仅实验版存在的 multi-agent 字段。若你的 Codex 已稳定支持 spawn 时的 model override，Skill 可以优先使用；否则通过具名 custom agents 完成模型路由。
-
-## 灵感来源
-
-本项目参考了社区中几种“按成本分层”的 Codex 多 Agent 思路，例如 `codex-chief`、`codex-skills-sol-luna-orchestrator` 以及 Codex parallel-subagent experiments，并在此基础上增加了 Luna / Terra / Sol 三层工程路由与独立测试角色。
+CI 会在 Python 3.11～3.13 上验证安装器，并覆盖多行 TOML、幂等性、已有角色保留、root model 保留、rollback 和角色安全配置漂移检测。
 
 本项目为非官方社区项目，与 OpenAI 无关联，也未获得 OpenAI 背书。
 
