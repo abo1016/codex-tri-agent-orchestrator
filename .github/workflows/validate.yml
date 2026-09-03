@@ -1,0 +1,35 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate metadata and agent TOML
+        run: |
+          python - <<'PY'
+          import json, pathlib, tomllib
+          root = pathlib.Path('.')
+          json.loads((root / '.agents/plugins/marketplace.json').read_text())
+          json.loads((root / 'plugins/tri-agent-orchestrator/.codex-plugin/plugin.json').read_text())
+          assets = root / 'plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/assets'
+          for path in assets.glob('*.toml'):
+              tomllib.loads(path.read_text())
+              print('OK', path)
+          PY
+      - name: Compile installer
+        run: python -m py_compile plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
+      - name: Installer dry-run and verification
+        run: |
+          export CODEX_HOME="$RUNNER_TEMP/codex-home"
+          SCRIPT=plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
+          python "$SCRIPT" --dry-run
+          python "$SCRIPT"
+          python "$SCRIPT" --check
