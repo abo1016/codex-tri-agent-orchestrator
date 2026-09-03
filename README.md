@@ -4,27 +4,26 @@
 
 > Cost-aware multi-agent orchestration for Codex using GPT-5.6 Luna, Terra, and Sol.
 
-Codex Tri-Agent Orchestrator turns Codex into a small engineering team with explicit model routing:
-
 ```text
 You
  └─ Terra Coordinator · medium
-     ├─ Luna Worker    · xhigh   — routine implementation + targeted tests
-     ├─ Luna Tester    · high    — verification, lint, regression tests
+     ├─ Luna Worker    · high    — routine implementation + targeted tests
+     ├─ Luna Tester    · medium  — verification, lint, regression tests
      ├─ Terra Expert   · high    — complex implementation / debugging
-     └─ Sol Judge      · high    — read-only architecture & final review
+     └─ Sol Judge      · high    — read-only architecture & critical review
 ```
+
+All custom roles are **leaf agents** and never spawn additional subagents. Current Codex Multi-Agent V2 ignores `agents.max_depth`, so `max_depth = 1` is treated as a V1 constraint; V2 recursion is prevented by role instructions.
 
 ## Why this architecture?
 
-The expensive model should not stay in the hot path all day. Sol is reserved for high-value judgment; Luna handles bounded work; Terra coordinates and takes the hard implementation cases.
-
-Routing rule:
+Sol is reserved for high-value judgment, Luna handles bounded implementation and deterministic verification, and Terra coordinates and handles hard engineering work.
 
 ```text
-clear + local + verifiable       -> Luna
-complex implementation/debugging -> Terra
-architecture / high-risk review  -> Sol
+clear + local + verifiable       -> Luna Worker
+verification / regression        -> Luna Tester
+complex implementation/debugging -> Terra Expert
+architecture / high-risk review  -> Sol Judge
 ```
 
 Large does not mean difficult. Decompose first, then escalate only when reasoning difficulty requires it.
@@ -32,91 +31,81 @@ Large does not mean difficult. Decompose first, then escalate only when reasonin
 ## What the plugin installs
 
 - `tri-agent-orchestrator` Skill
-- `luna_worker` — GPT-5.6 Luna, xhigh
-- `luna_tester` — GPT-5.6 Luna, high
+- `luna_worker` — GPT-5.6 Luna, high
+- `luna_tester` — GPT-5.6 Luna, medium
 - `terra_expert` — GPT-5.6 Terra, high
 - `sol_judge` — GPT-5.6 Sol, high, read-only
-- safe Codex config defaults: Terra coordinator, agents enabled, bounded concurrency/depth
-- a Python installer with `--dry-run` and `--check`
+- bounded Codex agent defaults, including V1 `max_depth = 1`
+- a Python 3.11+ installer with `--dry-run`, `--check`, and `--preserve-root-model`
 
-The installer merges only the keys owned by this plugin and creates timestamped backups before changing existing files.
+Installer safety now includes multiline-aware TOML editing, timestamped backups, symlink refusal for managed paths, role-drift verification, and rollback after partial writes or failed verification.
 
-## Install as a Codex Plugin
+## Install
 
 ```bash
 codex plugin marketplace add abo1016/codex-tri-agent-orchestrator --ref main
 codex plugin add tri-agent-orchestrator@codex-tri-agent-orchestrator
 ```
 
-Start a **new Codex session**, open `/skills`, select **Tri-Agent Orchestrator**, then ask:
+Start a new Codex session, open `/skills`, and select **Tri-Agent Orchestrator**.
 
-```text
-Use Tri-Agent Orchestrator to configure and verify my Codex multi-agent setup.
-```
-
-You can also install the Skill directly:
-
-```text
-$skill-installer Install the skill from https://github.com/abo1016/codex-tri-agent-orchestrator/tree/main/plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator
-```
-
-## Manual installer
-
-Requires Python 3.11+.
+Manual install/verification:
 
 ```bash
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --dry-run
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py
 python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --check
-codex doctor
 ```
 
-Restart Codex after installation.
+To preserve an existing root `model` and `model_reasoning_effort`:
 
-## Daily usage
-
-For normal development, just start Codex normally and ask for work. The coordinator should decide whether delegation adds value.
-
-Examples:
-
-```text
-Implement user notification preferences using the tri-agent workflow.
-```
-
-```text
-Investigate this Kafka consumer bug. Use Terra for the difficult implementation and Sol only for root-cause review.
-```
-
-```text
-Review the current diff with Sol Judge. Do not modify files.
+```bash
+python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --preserve-root-model
+python plugins/tri-agent-orchestrator/skills/tri-agent-orchestrator/scripts/configure_tri_agent.py --check --preserve-root-model
 ```
 
 ## Default workflow
 
 ```text
-DISCOVER
-  -> DESIGN (only when needed)
-  -> DECOMPOSE
-  -> ROUTE
-  -> PARALLEL EXECUTION
-  -> TEST
+DISCOVER + WORKTREE BASELINE
+  -> CLASSIFY / DECOMPOSE
+  -> PARALLEL LEAF EXECUTION
+  -> INTEGRATE
+  -> DETERMINISTIC VERIFY
   -> SOL REVIEW (risk-based)
   -> CORRECT
   -> RETEST
   -> ACCEPT
 ```
 
-Sol review is intentionally **risk-based**, not mandatory for every 20-line change. Routine work can be accepted after deterministic verification; architecture/security/concurrency/high-risk changes should go through Sol Judge.
+Before delegation, the root coordinator records the current worktree state and protects pre-existing user changes. The root owns repository-level Git state; leaf agents should not commit, stash, switch branches, reset, restore, or rebase unless explicitly assigned.
+
+## Escalation and stopping
+
+- Two evidence-producing Luna failures normally escalate to Terra.
+- Terra escalates to Sol for high-impact architecture, difficult security/distributed correctness, or persistent ambiguity.
+- Same-root-cause default budget: 2 Luna attempts, 2 Terra correction rounds, and 2 Sol review rounds.
+- Do not blindly retry unchanged deterministic failures.
+- After Sol resolves the hard reasoning step, implementation de-escalates immediately.
+
+Sol Judge returns one of:
+
+```text
+BLOCKER
+MAJOR
+MINOR
+INSUFFICIENT_EVIDENCE
+ACCEPTED
+```
 
 ## Cost discipline
 
 - Do not spawn agents for trivial edits.
 - Prefer 2–4 useful workers over maximum fan-out.
-- Keep recursion depth at 1.
-- Do not use Sol for mechanical coding.
-- After a difficult decision is solved, immediately de-escalate implementation to Terra/Luna.
+- Keep custom roles as leaf agents.
 - Prefer compiler/tests/linters/runtime evidence over another reasoning round.
-- Two evidence-producing Luna failures are a signal to escalate to Terra, not to keep retrying Luna.
+- Do not use Sol for mechanical coding or continuous supervision.
+- Default Luna Worker to `high` and Luna Tester to `medium`.
 
 ## Files
 
@@ -134,19 +123,10 @@ plugins/tri-agent-orchestrator/
       sol-judge.toml
     references/orchestration-policy.md
     scripts/configure_tri_agent.py
+    tests/test_configure_tri_agent.py
 ```
 
-## Safety
-
-`sol_judge` is read-only by construction. Implementation roles use workspace-write. The plugin does not enable unrestricted sandbox access, force-push, production deployment, or destructive operations.
-
-## Compatibility
-
-Codex configuration evolves. This project intentionally avoids experimental-only multi-agent flags in its default install. If explicit per-spawn model overrides become stable in your Codex version, the Skill may use them when available; otherwise it delegates to named custom agents.
-
-## Inspiration
-
-This project is informed by community work around budget-aware Codex orchestration, including `codex-chief`, `codex-skills-sol-luna-orchestrator`, and experiments with parallel Codex subagents.
+CI validates the installer on Python 3.11–3.13 and covers multiline TOML preservation, idempotency, existing role preservation, root model preservation, rollback, and role security drift.
 
 This project is unofficial and is not affiliated with or endorsed by OpenAI.
 
